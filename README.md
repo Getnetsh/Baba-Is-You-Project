@@ -203,7 +203,7 @@ class YourAlgorithmAgent(BaseAgent):
 
 ```bash
 # Clone the repository
-git clone https://github.com/edoardoedr/KekeIsYou_PY.git
+git clone https://github.com/Getnetsh/Baba-Is-You-Project.git
 cd KekeAI
 
 # Install dependencies
