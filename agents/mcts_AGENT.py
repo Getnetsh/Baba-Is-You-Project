@@ -1,6 +1,6 @@
 """
-Implementazione dell'agente MCTS (Monte Carlo Tree Search) per il gioco KekeAI.
-Utilizza l'algoritmo MCTS con simulazioni Monte Carlo per trovare la soluzione ottimale.
+MCTS (Monte Carlo Tree Search) agent implementation for the KekeAI game.
+Uses the MCTS algorithm with Monte Carlo simulations to find the optimal solution.
 """
 
 from base_agent import BaseAgent
@@ -14,7 +14,7 @@ import copy
 
 class MCTSNode:
     """
-    Nodo per l'albero MCTS.
+    Node for the MCTS tree.
     """
     def __init__(self, state: GameState, parent: Optional['MCTSNode'] = None, action: Optional[Direction] = None):
         self.state = state
@@ -28,7 +28,7 @@ class MCTSNode:
     
     def _compute_state_hash(self) -> str:
         """Compute a unique hash for the state."""
-        # Serializza la mappa degli oggetti
+        # Serialize the object map
         obj_map_str = ""
         for row in self.state.obj_map:
             for cell in row:
@@ -37,7 +37,7 @@ class MCTSNode:
                 else:
                     obj_map_str += str(cell)
         
-        # Serializza la mappa di sfondo
+        # Serialize the background map
         back_map_str = ""
         for row in self.state.back_map:
             for cell in row:
@@ -46,21 +46,21 @@ class MCTSNode:
                 else:
                     back_map_str += str(cell)
         
-        # Aggiungi le regole
+        # Add the rules
         rules_str = ''.join(sorted(self.state.rules))
         
         return f"{obj_map_str}|{back_map_str}|{rules_str}"
     
     def is_fully_expanded(self) -> bool:
-        """Controlla se tutte le azioni sono state provate."""
+        """Check if all actions have been tried."""
         return len(self.untried_actions) == 0
     
     def is_terminal(self) -> bool:
-        """Controlla se questo è un nodo terminale."""
+        """Check if this is a terminal node."""
         return check_win(self.state)
     
     def uct_value(self, exploration_constant: float = 1.4) -> float:
-        """Calcola il valore UCT (Upper Confidence Bound for Trees)."""
+        """Calculate the UCT (Upper Confidence Bound for Trees) value."""
         if self.visits == 0:
             return float('inf')
         
@@ -69,11 +69,11 @@ class MCTSNode:
         return exploitation + exploration
     
     def best_child(self, exploration_constant: float = 1.4) -> 'MCTSNode':
-        """Seleziona il figlio migliore usando UCT."""
+        """Select the best child using UCT."""
         return max(self.children, key=lambda child: child.uct_value(exploration_constant))
     
     def select_untried_action(self) -> Direction:
-        """Seleziona un'azione non ancora provata."""
+        """Select an untried action."""
         return random.choice(self.untried_actions)
 
 
@@ -87,7 +87,7 @@ class MCTSAgent(BaseAgent):
         self.visited_states: Set[str] = set()
     
     def get_distance_to_goal(self, state: GameState) -> float:
-        """Calcola la distanza minima dal giocatore all'oggetto vincente."""
+        """Calculate the minimum distance from the player to the winning object."""
         if not state.players or not state.winnables:
             return float('inf')
         
@@ -102,7 +102,7 @@ class MCTSAgent(BaseAgent):
         return min_distance
     
     def select(self, node: MCTSNode) -> MCTSNode:
-        """Fase di selezione: naviga l'albero usando UCT."""
+        """Selection phase: navigate the tree using UCT."""
         current = node
         
         while not current.is_terminal() and current.is_fully_expanded():
@@ -113,51 +113,51 @@ class MCTSAgent(BaseAgent):
         return current
     
     def expand(self, node: MCTSNode) -> MCTSNode:
-        """Fase di espansione: aggiungi un nuovo figlio."""
+        """Expansion phase: add a new child."""
         if node.is_terminal():
             return node
         
         if not node.untried_actions:
             return node
         
-        # Seleziona un'azione non provata
+        # Select an untried action
         action = node.select_untried_action()
         node.untried_actions.remove(action)
         
         try:
-            # Crea il nuovo stato
+            # Create the new state
             new_state = advance_game_state(action, node.state.copy())
             interpret_rules(new_state)
             
-            # Crea il nuovo nodo figlio
+            # Create the new child node
             child_node = MCTSNode(new_state, parent=node, action=action)
             node.children.append(child_node)
             
             return child_node
         except Exception as e:
-            # Se c'è un errore, ritorna il nodo corrente
+            # If there's an error, return the current node
             return node
     
     def simulate(self, state: GameState, max_depth: int = 50) -> float:
         """
-        Fase di simulazione: esegui una partita casuale con euristica.
+        Simulation phase: execute a random game with heuristics.
         """
         current_state = state.copy()
         visited_in_simulation: Set[str] = set()
         initial_distance = self.get_distance_to_goal(current_state)
         
         for step in range(max_depth):
-            # Controlla se abbiamo vinto
+            # Check if we've won
             if check_win(current_state):
                 return 1.0
             
-            # Evita cicli nella simulazione
+            # Avoid cycles in simulation
             state_hash = self._get_state_hash(current_state)
             if state_hash in visited_in_simulation:
                 break
             visited_in_simulation.add(state_hash)
             
-            # Scegli un'azione con euristica
+            # Choose an action with heuristics
             action = self._choose_action_with_heuristic(current_state)
             
             try:
@@ -166,13 +166,13 @@ class MCTSAgent(BaseAgent):
             except Exception as e:
                 break
         
-        # Calcola la ricompensa basata su quanto ci siamo avvicinati all'obiettivo
+        # Calculate reward based on how close we got to the goal
         final_distance = self.get_distance_to_goal(current_state)
         
         if final_distance == float('inf'):
             return 0.0
         
-        # Ricompensa basata sul miglioramento
+        # Reward based on improvement
         if initial_distance == float('inf'):
             return 0.1
         
@@ -180,7 +180,7 @@ class MCTSAgent(BaseAgent):
         return min(1.0, improvement / max(1, initial_distance))
     
     def _get_state_hash(self, state: GameState) -> str:
-        """Crea un hash dello stato."""
+        """Create a hash of the state."""
         obj_map_str = ""
         for row in state.obj_map:
             for cell in row:
@@ -191,18 +191,18 @@ class MCTSAgent(BaseAgent):
         return obj_map_str
     
     def _choose_action_with_heuristic(self, state: GameState) -> Direction:
-        """Scegli un'azione usando un'euristica semplice."""
+        """Choose an action using a simple heuristic."""
         if not state.players or not state.winnables:
             return random.choice(list(Direction))
         
         player = state.players[0]
         target = state.winnables[0]
         
-        # Calcola la direzione verso l'obiettivo
+        # Calculate direction towards the goal
         dx = target.x - player.x
         dy = target.y - player.y
         
-        # Scegli l'azione con bias verso l'obiettivo
+        # Choose action with bias towards the goal
         actions_weights = []
         
         for action in Direction:
@@ -219,7 +219,7 @@ class MCTSAgent(BaseAgent):
             
             actions_weights.append((action, weight))
         
-        # Scelta pesata
+        # Weighted choice
         total_weight = sum(weight for _, weight in actions_weights)
         rand_val = random.uniform(0, total_weight)
         
@@ -232,7 +232,7 @@ class MCTSAgent(BaseAgent):
         return random.choice(list(Direction))
     
     def backpropagate(self, node: MCTSNode, reward: float):
-        """Fase di backpropagazione: aggiorna i valori dei nodi."""
+        """Backpropagation phase: update node values."""
         current = node
         while current is not None:
             current.visits += 1
@@ -240,12 +240,12 @@ class MCTSAgent(BaseAgent):
             current = current.parent
     
     def get_best_path(self, root: MCTSNode) -> List[Direction]:
-        """Ottieni il miglior percorso dall'albero MCTS."""
+        """Get the best path from the MCTS tree."""
         path = []
         current = root
         
         while current.children:
-            # Scegli il figlio con il maggior numero di visite (più esplorato)
+            # Choose the child with the most visits (most explored)
             best_child = max(current.children, key=lambda child: child.visits)
             
             if best_child.action:
@@ -253,7 +253,7 @@ class MCTSAgent(BaseAgent):
             
             current = best_child
             
-            # Se troviamo una soluzione, fermati
+            # If we find a solution, stop
             if check_win(current.state):
                 break
         
@@ -261,35 +261,35 @@ class MCTSAgent(BaseAgent):
     
     def search(self, initial_state: GameState, iterations: int = 1000) -> List[Direction]:
         """
-        Implementa l'algoritmo MCTS per trovare la soluzione.
+        Implement the MCTS algorithm to find the solution.
         
-        :param initial_state: Lo stato iniziale del gioco
-        :param iterations: Numero di iterazioni MCTS
-        :return: Lista delle azioni che portano alla soluzione
+        :param initial_state: The initial game state
+        :param iterations: Number of MCTS iterations
+        :return: List of actions that lead to the solution
         """
-        # Interpreta le regole iniziali
+        # Interpret initial rules
         interpret_rules(initial_state)
         
-        # Crea il nodo radice
+        # Create root node
         root = MCTSNode(initial_state)
         
-        # Esegui le iterazioni MCTS
+        # Execute MCTS iterations
         for i in trange(iterations, desc="MCTS Search"):
-            # 1. Selezione
+            # 1. Selection
             selected_node = self.select(root)
             
-            # 2. Espansione
+            # 2. Expansion
             expanded_node = self.expand(selected_node)
             
-            # 3. Simulazione
+            # 3. Simulation
             reward = self.simulate(expanded_node.state)
             
-            # 4. Backpropagazione
+            # 4. Backpropagation
             self.backpropagate(expanded_node, reward)
             
-            # Controlla se abbiamo trovato una soluzione
+            # Check if we found a solution
             if expanded_node.is_terminal():
-                # Ricostruisci il percorso verso la soluzione
+                # Reconstruct the path to the solution
                 path = []
                 current = expanded_node
                 while current.parent is not None:
@@ -299,10 +299,10 @@ class MCTSAgent(BaseAgent):
                 
                 if path:
                     path.reverse()
-                    print(f"Soluzione trovata in {len(path)} mosse dopo {i+1} iterazioni")
+                    print(f"Solution found in {len(path)} moves after {i+1} iterations")
                     return path
         
-        # Se non abbiamo trovato una soluzione, ritorna il miglior percorso
+        # If we didn't find a complete solution, return the best path
         best_path = self.get_best_path(root)
-        print(f"Nessuna soluzione completa trovata. Miglior percorso: {len(best_path)} mosse")
+        print(f"No complete solution found. Best path: {len(best_path)} moves")
         return best_path
