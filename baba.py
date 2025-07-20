@@ -1,3 +1,4 @@
+
 # Baba is Y'all mechanic/rule base
 # Version: 2.0py
 # Original Code by Milk
@@ -1243,6 +1244,550 @@ def bad_feats(featured, sort_phys):
                         baddies.append([a, b])
 
     return baddies
+
+
+
+
+
+
+
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+
+
+# Returns True if the player(s) in next_state are closer to a win object than in prev_state
+def state_brings_player_closer_to_win(prev_state: GameState, next_state: GameState) -> bool:
+    """
+    Returns True if the minimum Manhattan distance from any player to any win object
+    in next_state is less than in prev_state.
+
+    :param prev_state: The game state before the move.
+    :param next_state: The game state after the move.
+    :return: True if the player(s) are closer to a win object, False otherwise.
+    """
+    def min_player_win_distance(state):
+        if not state.players or not state.winnables:
+            return float('inf')
+        min_dist = float('inf')
+        for player in state.players:
+            for win_obj in state.winnables:
+                dist = abs(player.x - win_obj.x) + abs(player.y - win_obj.y)
+                if dist < min_dist:
+                    min_dist = dist
+        return min_dist
+    return min_player_win_distance(next_state) < min_player_win_distance(prev_state)
+
+
+
+
+
+# Returns True if a move creates a new positive rule (e.g., a new 'is you', 'is win', etc.)
+def move_creates_positive_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if next_state.rules contains a new 'is' rule with a positive effect (win, you, push, open, etc.)
+    that was not present in prev_state.rules. Only rules that actually affect objects on the map are considered.
+    """
+    positive_keywords = {"win", "you", "push", "open", "shut", "hot", "melt", "move"}
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    new_rules = next_rules - prev_rules
+    # Only consider rules that are of the form 'object-is-keyword' and the object exists in next_state.phys
+    phys_names = set(obj.name for obj in next_state.phys)
+    for rule in new_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] in positive_keywords and parts[0] in phys_names:
+            return True
+    return False
+
+# #AGGIUNTA
+# def move_creates_win_condition(prev_state: 'GameState', next_state: 'GameState') -> bool:
+#     """
+#     Returns True if the move creates a winning condition by having a player overlap with a winnable object.
+#     """
+#     if not next_state.players or not next_state.winnables:
+#         return False
+    
+#     for player in next_state.players:
+#         for winnable in next_state.winnables:
+#             if player.x == winnable.x and player.y == winnable.y:
+#                 return True
+#     return False
+
+# #AGGIUNTA
+# def move_creates_player_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+#     """
+#     Returns True if a new "X is you" rule is created, potentially giving the player more control.
+#     """
+#     prev_rules = set(prev_state.rules)
+#     next_rules = set(next_state.rules)
+#     new_rules = next_rules - prev_rules
+    
+#     phys_names = set(obj.name for obj in next_state.phys)
+#     for rule in new_rules:
+#         parts = rule.split("-")
+#         if len(parts) == 3 and parts[1] == "is" and parts[2] == "you" and parts[0] in phys_names:
+#             return True
+#     return False
+
+# # AGGIUNTA
+# def move_creates_win_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+#     """
+#     Returns True if a new "X is win" rule is created, potentially creating new winning objectives.
+#     """
+#     prev_rules = set(prev_state.rules)
+#     next_rules = set(next_state.rules)
+#     new_rules = next_rules - prev_rules
+    
+#     phys_names = set(obj.name for obj in next_state.phys)
+#     for rule in new_rules:
+#         parts = rule.split("-")
+#         if len(parts) == 3 and parts[1] == "is" and parts[2] == "win" and parts[0] in phys_names:
+#             return True
+#     return False
+
+# #AGGIUNTA
+# def move_removes_obstacle_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+#     """
+#     Returns True if a rule that makes objects block movement (stop) is removed.
+#     """
+#     prev_rules = set(prev_state.rules)
+#     next_rules = set(next_state.rules)
+#     removed_rules = prev_rules - next_rules
+    
+#     phys_names = set(obj.name for obj in prev_state.phys)
+#     for rule in removed_rules:
+#         parts = rule.split("-")
+#         if len(parts) == 3 and parts[1] == "is" and parts[2] == "stop" and parts[0] in phys_names:
+#             return True
+#     return False
+
+# Funzioni euristiche aggiuntive per migliorare l'algoritmo MCTS in Baba is You
+
+def move_creates_win_condition(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the move creates a winning condition by having a player overlap with a winnable object.
+    This is the most important heuristic as it represents achieving the goal.
+    """
+    if not next_state.players or not next_state.winnables:
+        return False
+    
+    for player in next_state.players:
+        for winnable in next_state.winnables:
+            if player.x == winnable.x and player.y == winnable.y:
+                return True
+    return False
+
+def move_creates_player_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if a new "X is you" rule is created, potentially giving the player more control.
+    """
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    new_rules = next_rules - prev_rules
+    
+    phys_names = set(obj.name for obj in next_state.phys)
+    for rule in new_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] == "you" and parts[0] in phys_names:
+            return True
+    return False
+
+def move_creates_win_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if a new "X is win" rule is created, potentially creating new winning objectives.
+    """
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    new_rules = next_rules - prev_rules
+    
+    phys_names = set(obj.name for obj in next_state.phys)
+    for rule in new_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] == "win" and parts[0] in phys_names:
+            return True
+    return False
+
+def move_removes_obstacle_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if a rule that makes objects block movement (stop) is removed.
+    """
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    removed_rules = prev_rules - next_rules
+    
+    phys_names = set(obj.name for obj in prev_state.phys)
+    for rule in removed_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] == "stop" and parts[0] in phys_names:
+            return True
+    return False
+
+def move_creates_push_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if a new "X is push" rule is created, making objects movable.
+    """
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    new_rules = next_rules - prev_rules
+    
+    phys_names = set(obj.name for obj in next_state.phys)
+    for rule in new_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] == "push" and parts[0] in phys_names:
+            return True
+    return False
+
+def move_brings_rule_words_closer(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if word objects that could form beneficial rules are brought closer together.
+    Specifically looks for words that could form "X is you" or "X is win" rules.
+    """
+    def get_rule_potential_distance(state):
+        if not state.words:
+            return float('inf')
+        
+        min_dist = float('inf')
+        beneficial_patterns = [("you", "win"), ("push", "you"), ("push", "win")]
+        
+        # Find potential rule formations
+        for word1 in state.words:
+            if word1.obj in ["you", "win", "push"]:
+                for word2 in state.words:
+                    if word2.obj == "is":
+                        for word3 in state.words:
+                            if word3.obj != word1.obj and word3.obj != "is":
+                                # Check if this would form a beneficial rule
+                                pattern = (word1.obj, word3.obj)
+                                reverse_pattern = (word3.obj, word1.obj)
+                                
+                                if pattern in beneficial_patterns or reverse_pattern in beneficial_patterns:
+                                    # Calculate distance for potential rule formation
+                                    dist = abs(word1.x - word2.x) + abs(word1.y - word2.y) + \
+                                           abs(word2.x - word3.x) + abs(word2.y - word3.y)
+                                    min_dist = min(min_dist, dist)
+        
+        return min_dist
+    
+    prev_dist = get_rule_potential_distance(prev_state)
+    next_dist = get_rule_potential_distance(next_state)
+    
+    return next_dist < prev_dist
+
+def move_avoids_danger(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the move increases the minimum distance from players to dangerous objects.
+    """
+    def min_player_danger_distance(state):
+        if not state.players:
+            return float('inf')
+        
+        dangerous_objects = state.killers + state.sinkers
+        if not dangerous_objects:
+            return float('inf')
+        
+        min_dist = float('inf')
+        for player in state.players:
+            for danger in dangerous_objects:
+                dist = abs(player.x - danger.x) + abs(player.y - danger.y)
+                min_dist = min(min_dist, dist)
+        
+        return min_dist
+    
+    prev_danger_dist = min_player_danger_distance(prev_state)
+    next_danger_dist = min_player_danger_distance(next_state)
+    
+    return next_danger_dist > prev_danger_dist
+
+def move_creates_tool_access(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the move brings players closer to pushable objects that could be used as tools.
+    """
+    def min_player_tool_distance(state):
+        if not state.players or not state.pushables:
+            return float('inf')
+        
+        min_dist = float('inf')
+        for player in state.players:
+            for pushable in state.pushables:
+                # Don't consider the player itself as a tool
+                if pushable not in state.players:
+                    dist = abs(player.x - pushable.x) + abs(player.y - pushable.y)
+                    min_dist = min(min_dist, dist)
+        
+        return min_dist
+    
+    prev_tool_dist = min_player_tool_distance(prev_state)
+    next_tool_dist = min_player_tool_distance(next_state)
+    
+    return next_tool_dist < prev_tool_dist
+
+def move_preserves_control(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the move maintains or increases the number of controllable objects.
+    """
+    return len(next_state.players) >= len(prev_state.players)
+
+def move_improves_rule_formation_potential(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the move improves the potential for forming beneficial rules by organizing words.
+    """
+    def count_aligned_words(state):
+        """Count words that are aligned horizontally or vertically in groups of 3."""
+        if len(state.words) < 3:
+            return 0
+        
+        aligned_count = 0
+        
+        # Check horizontal alignments
+        for y in range(len(state.obj_map)):
+            words_in_row = [w for w in state.words if w.y == y]
+            words_in_row.sort(key=lambda w: w.x)
+            
+            for i in range(len(words_in_row) - 2):
+                if (words_in_row[i + 1].x == words_in_row[i].x + 1 and 
+                    words_in_row[i + 2].x == words_in_row[i + 1].x + 1):
+                    aligned_count += 1
+        
+        # Check vertical alignments
+        for x in range(len(state.obj_map[0])):
+            words_in_col = [w for w in state.words if w.x == x]
+            words_in_col.sort(key=lambda w: w.y)
+            
+            for i in range(len(words_in_col) - 2):
+                if (words_in_col[i + 1].y == words_in_col[i].y + 1 and 
+                    words_in_col[i + 2].y == words_in_col[i + 1].y + 1):
+                    aligned_count += 1
+        
+        return aligned_count
+    
+    prev_alignment = count_aligned_words(prev_state)
+    next_alignment = count_aligned_words(next_state)
+    
+    return next_alignment > prev_alignment
+
+# Funzione principale per combinare tutte le euristiche
+def evaluate_move_heuristic(prev_state: 'GameState', next_state: 'GameState') -> float:
+    """
+    Combines all heuristic functions into a single score.
+    Higher scores indicate better moves.
+    """
+    score = 0.0
+    
+    # Victory condition - highest priority
+    if move_creates_win_condition(prev_state, next_state):
+        score += 1000.0
+    
+    # Rule creation - high priority
+    if move_creates_positive_rule(prev_state, next_state):
+        score += 50.0
+    
+    if move_creates_player_rule(prev_state, next_state):
+        score += 80.0
+    
+    if move_creates_win_rule(prev_state, next_state):
+        score += 70.0
+    
+    if move_creates_push_rule(prev_state, next_state):
+        score += 30.0
+    
+    # Rule removal - medium priority
+    if destructive_rule_removed(prev_state, next_state):
+        score += 40.0
+    
+    if move_removes_obstacle_rule(prev_state, next_state):
+        score += 35.0
+    
+    # Movement and positioning - lower priority
+    if state_brings_player_closer_to_win(prev_state, next_state):
+        score += 20.0
+    
+    if move_brings_rule_words_closer(prev_state, next_state):
+        score += 25.0
+    
+    if move_creates_tool_access(prev_state, next_state):
+        score += 15.0
+    
+    if move_improves_rule_formation_potential(prev_state, next_state):
+        score += 10.0
+    
+    # Safety considerations
+    if move_avoids_danger(prev_state, next_state):
+        score += 30.0
+    
+    if move_preserves_control(prev_state, next_state):
+        score += 25.0
+    
+    # Negative scoring for potentially bad moves
+    if something_sank(prev_state, next_state):
+        score -= 20.0
+    
+    # Bonus for meaningful interaction
+    if something_was_pushed(prev_state, next_state):
+        score += 5.0
+    
+    return score
+
+
+# Check if the player is in a deadlock state (cannot move, has drowned, or has died)
+def check_player_deadlocked(game_state: GameState) -> bool:
+    """
+    Returns True if all player objects are either dead (not present), have drowned, or cannot make any legal move.
+
+    :param game_state: The current game state.
+    :return: True if all players are deadlocked, False otherwise.
+    """
+    # If there are no players left, they have all died
+    if not game_state.players:
+        return True
+
+    # If any player is overlapping with a sinker, or killed, consider deadlocked
+    for player in game_state.players:
+        for sinker in game_state.sinkers:
+            if player != sinker and overlapped(player, sinker):
+                return True
+    # Check if any player is overlapping with a killer
+    for player in game_state.players:
+        for killer in game_state.killers:
+            if overlapped(player, killer):
+                return True
+
+    # Check if all players are unable to move in any direction
+    from enum import Enum
+    class _Direction(Enum):
+        Left = 'l'
+        Right = 'r'
+        Up = 'u'
+        Down = 'd'
+        Wait = 's'
+        Undefined = None
+
+    def can_player_move(player, state):
+        for direction in [getattr(state, 'Direction', _Direction).Left,
+                          getattr(state, 'Direction', _Direction).Right,
+                          getattr(state, 'Direction', _Direction).Up,
+                          getattr(state, 'Direction', _Direction).Down]:
+            # Try to move the player in each direction
+            # Use the can_move function if available
+            try:
+                if can_move(player, direction, state.obj_map, state.back_map, [], state.players, state.pushables, state.phys, state.sort_phys):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    # If all players cannot move, it's a deadlock
+    if all(not can_player_move(player, game_state) for player in game_state.players):
+        return True
+    return False
+
+
+
+
+
+# Returns True if any non-player, non-word, non-keyword physical object was pushed (moved position) from prev_state to next_state
+def something_was_pushed(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if any non-player, non-word, non-keyword physical object changed position between prev_state and next_state.
+    """
+    def is_pushable_nonplayer(obj, state):
+        return (
+            is_phys(obj)
+            and obj not in state.players
+            and not is_word(obj)
+            and not is_key_word(obj)
+        )
+    prev_objs = {(obj.name, obj.x, obj.y) for obj in prev_state.phys if is_pushable_nonplayer(obj, prev_state)}
+    next_objs = {(obj.name, obj.x, obj.y) for obj in next_state.phys if is_pushable_nonplayer(obj, next_state)}
+    # If any object changed position, the sets will differ
+    return prev_objs != next_objs
+
+
+
+
+# Returns True if a destructive rule (kill/sink/drown) is removed for any object present in prev_state.phys
+
+def destructive_rule_removed(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if a destructive rule (e.g., 'x-is-kill', 'x-is-sink', 'x-is-drown', 'x-is-stop')
+    is present in prev_state.rules but not in next_state.rules, and the object is present in prev_state.phys.
+    """
+    destructive_keywords = {"kill", "sink", "drown", "stop"}
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    removed_rules = prev_rules - next_rules
+    phys_names = set(obj.name for obj in prev_state.phys)
+    for rule in removed_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] in destructive_keywords and parts[0] in phys_names:
+            return True
+    return False
+
+
+
+
+# Returns True if any object and a sinker overlapped and both disappeared (i.e., a sink event occurred)
+def move_closer_to_destructive_rule(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if the minimum Manhattan distance from any player to any object affected by a destructive rule
+    (kill, sink, drown, stop) that was present in prev_state.rules but not in next_state.rules is less in next_state than in prev_state.
+    Only considers objects present in next_state.phys.
+    """
+    destructive_keywords = {"kill", "sink", "drown", "stop"}
+    prev_rules = set(prev_state.rules)
+    next_rules = set(next_state.rules)
+    removed_rules = prev_rules - next_rules
+    # Find all object names affected by removed destructive rules
+    affected_names = set()
+    for rule in removed_rules:
+        parts = rule.split("-")
+        if len(parts) == 3 and parts[1] == "is" and parts[2] in destructive_keywords:
+            affected_names.add(parts[0])
+    if not affected_names:
+        return False
+    # Find all objects in next_state.phys with those names
+    affected_objs_next = [obj for obj in next_state.phys if obj.name in affected_names]
+    affected_objs_prev = [obj for obj in prev_state.phys if obj.name in affected_names]
+    if not affected_objs_next or not next_state.players:
+        return False
+    def min_dist(players, objs):
+        min_d = float('inf')
+        for player in players:
+            for obj in objs:
+                dist = abs(player.x - obj.x) + abs(player.y - obj.y)
+                if dist < min_d:
+                    min_d = dist
+        return min_d
+    dist_prev = min_dist(prev_state.players, affected_objs_prev) if prev_state.players and affected_objs_prev else float('inf')
+    dist_next = min_dist(next_state.players, affected_objs_next)
+    return dist_next < dist_prev
+
+def something_sank(prev_state: 'GameState', next_state: 'GameState') -> bool:
+    """
+    Returns True if, between prev_state and next_state, any sinker and any other object (not a player, not a word/keyword)
+    overlapped in prev_state and both are missing in next_state.phys at that position.
+    """
+    next_phys_set = set((obj.name, obj.x, obj.y) for obj in next_state.phys)
+    for sinker in prev_state.sinkers:
+        for obj in prev_state.phys:
+            if obj is sinker or is_word(obj) or is_key_word(obj) or obj in prev_state.players:
+                continue
+            if (obj.x, obj.y) == (sinker.x, sinker.y):
+                sinker_pos = (sinker.name, sinker.x, sinker.y)
+                obj_pos = (obj.name, obj.x, obj.y)
+                if sinker_pos not in next_phys_set and obj_pos not in next_phys_set:
+                    return True
+    return False
+
+
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+
 
 
 if __name__ == "__main__":

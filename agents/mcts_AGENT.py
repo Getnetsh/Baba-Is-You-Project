@@ -1,308 +1,243 @@
-"""
-MCTS (Monte Carlo Tree Search) agent implementation for the KekeAI game.
-Uses the MCTS algorithm with Monte Carlo simulations to find the optimal solution.
-"""
-
 from base_agent import BaseAgent
-from baba import GameState, Direction, advance_game_state, check_win, interpret_rules
-from typing import List, Set, Tuple, Optional
-import random
+from baba import GameState, Direction, advance_game_state, check_win, evaluate_move_heuristic, move_creates_player_rule, move_creates_win_rule, move_removes_obstacle_rule, state_brings_player_closer_to_win, move_creates_positive_rule, check_player_deadlocked, something_was_pushed, destructive_rule_removed, something_sank, move_closer_to_destructive_rule, move_creates_win_condition
+from typing import List, Dict
 import math
+import random
 from tqdm import trange
-import copy
+from collections import defaultdict
 
 
 class MCTSNode:
-    """
-    Node for the MCTS tree.
-    """
-    def __init__(self, state: GameState, parent: Optional['MCTSNode'] = None, action: Optional[Direction] = None):
+    def __init__(self, state: GameState, parent=None, action=None, isInvalid=False):
         self.state = state
         self.parent = parent
         self.action = action
-        self.children: List['MCTSNode'] = []
+        self.children: Dict[Direction, 'MCTSNode'] = {}
         self.visits = 0
-        self.wins = 0.0
-        self.untried_actions = [Direction.Up, Direction.Down, Direction.Left, Direction.Right, Direction.Wait]
-        self.state_hash = self._compute_state_hash()
-    
-    def _compute_state_hash(self) -> str:
-        """Compute a unique hash for the state."""
-        # Serialize the object map
-        obj_map_str = ""
-        for row in self.state.obj_map:
-            for cell in row:
-                if hasattr(cell, 'name'):
-                    obj_map_str += cell.name
-                else:
-                    obj_map_str += str(cell)
-        
-        # Serialize the background map
-        back_map_str = ""
-        for row in self.state.back_map:
-            for cell in row:
-                if hasattr(cell, 'name'):
-                    back_map_str += cell.name
-                else:
-                    back_map_str += str(cell)
-        
-        # Add the rules
-        rules_str = ''.join(sorted(self.state.rules))
-        
-        return f"{obj_map_str}|{back_map_str}|{rules_str}"
-    
-    def is_fully_expanded(self) -> bool:
-        """Check if all actions have been tried."""
-        return len(self.untried_actions) == 0
-    
-    def is_terminal(self) -> bool:
-        """Check if this is a terminal node."""
-        return check_win(self.state)
-    
-    def uct_value(self, exploration_constant: float = 1.4) -> float:
-        """Calculate the UCT (Upper Confidence Bound for Trees) value."""
-        if self.visits == 0:
-            return float('inf')
-        
-        exploitation = self.wins / self.visits
-        exploration = exploration_constant * math.sqrt(math.log(self.parent.visits) / self.visits)
-        return exploitation + exploration
-    
-    def best_child(self, exploration_constant: float = 1.4) -> 'MCTSNode':
-        """Select the best child using UCT."""
-        return max(self.children, key=lambda child: child.uct_value(exploration_constant))
-    
-    def select_untried_action(self) -> Direction:
-        """Select an untried action."""
-        return random.choice(self.untried_actions)
+        self.wins = 0
+        self.isInvalid = isInvalid
+
+    def is_fully_expanded(self):
+        return len(self.children) == len(Direction)-1  # Excludes Direction.Undefined
+
+    def best_child(self, c_param=1.4):
+        # Filter out no-op children first
+        valid_children = [c for c in self.children.values() if not getattr(c, "isInvalid", False)]
+
+        # If no valid children, fallback to all children (to avoid empty list)
+        if not valid_children:
+            valid_children = list(self.children.values())
+
+        # Adaptive exploration: reduce c_param for well-visited nodes
+        if self.visits > 100:
+            c_param *= 0.8
+
+        # UCT formula with win bonus for nodes that lead to wins
+        return max(
+            valid_children,
+            key=lambda child: (child.wins / (child.visits + 1e-6)) +
+            c_param * math.sqrt(math.log(self.visits + 1) / (child.visits + 1e-6)) +
+            (0.1 if any(check_win(grandchild.state) for grandchild in child.children.values()) else 0)
+        )
 
 
 class MCTSAgent(BaseAgent):
-    """
-    MCTS (Monte Carlo Tree Search) implementation.
-    """
-    
-    def __init__(self, exploration_constant: float = 1.4):
-        self.exploration_constant = exploration_constant
-        self.visited_states: Set[str] = set()
-    
-    def get_distance_to_goal(self, state: GameState) -> float:
-        """Calculate the minimum distance from the player to the winning object."""
-        if not state.players or not state.winnables:
-            return float('inf')
+    def __init__(self):
+        super().__init__()
+        # Simple state tracking to avoid immediate loops
+        self.recent_states = defaultdict(int)
         
-        min_distance = float('inf')
-        for player in state.players:
-            player_pos = (player.x, player.y)
-            for winnable in state.winnables:
-                winnable_pos = (winnable.x, winnable.y)
-                distance = abs(player_pos[0] - winnable_pos[0]) + abs(player_pos[1] - winnable_pos[1])
-                min_distance = min(min_distance, distance)
+    def search(self, initial_state: GameState, iterations: int = 250) -> List[Direction]:
+        self.recent_states.clear()  # Reset for new search
         
-        return min_distance
-    
-    def select(self, node: MCTSNode) -> MCTSNode:
-        """Selection phase: navigate the tree using UCT."""
-        current = node
-        
-        while not current.is_terminal() and current.is_fully_expanded():
-            if not current.children:
-                break
-            current = current.best_child(self.exploration_constant)
-        
-        return current
-    
-    def expand(self, node: MCTSNode) -> MCTSNode:
-        """Expansion phase: add a new child."""
-        if node.is_terminal():
-            return node
-        
-        if not node.untried_actions:
-            return node
-        
-        # Select an untried action
-        action = node.select_untried_action()
-        node.untried_actions.remove(action)
-        
-        try:
-            # Create the new state
-            new_state = advance_game_state(action, node.state.copy())
-            interpret_rules(new_state)
-            
-            # Create the new child node
-            child_node = MCTSNode(new_state, parent=node, action=action)
-            node.children.append(child_node)
-            
-            return child_node
-        except Exception as e:
-            # If there's an error, return the current node
-            return node
-    
-    def simulate(self, state: GameState, max_depth: int = 50) -> float:
-        """
-        Simulation phase: execute a random game with heuristics.
-        """
-        current_state = state.copy()
-        visited_in_simulation: Set[str] = set()
-        initial_distance = self.get_distance_to_goal(current_state)
-        
-        for step in range(max_depth):
-            # Check if we've won
-            if check_win(current_state):
-                return 1.0
-            
-            # Avoid cycles in simulation
-            state_hash = self._get_state_hash(current_state)
-            if state_hash in visited_in_simulation:
-                break
-            visited_in_simulation.add(state_hash)
-            
-            # Choose an action with heuristics
-            action = self._choose_action_with_heuristic(current_state)
-            
-            try:
-                current_state = advance_game_state(action, current_state.copy())
-                interpret_rules(current_state)
-            except Exception as e:
-                break
-        
-        # Calculate reward based on how close we got to the goal
-        final_distance = self.get_distance_to_goal(current_state)
-        
-        if final_distance == float('inf'):
-            return 0.0
-        
-        # Reward based on improvement
-        if initial_distance == float('inf'):
-            return 0.1
-        
-        improvement = max(0, initial_distance - final_distance)
-        return min(1.0, improvement / max(1, initial_distance))
-    
-    def _get_state_hash(self, state: GameState) -> str:
-        """Create a hash of the state."""
-        obj_map_str = ""
-        for row in state.obj_map:
-            for cell in row:
-                if hasattr(cell, 'name'):
-                    obj_map_str += cell.name
-                else:
-                    obj_map_str += str(cell)
-        return obj_map_str
-    
-    def _choose_action_with_heuristic(self, state: GameState) -> Direction:
-        """Choose an action using a simple heuristic."""
-        if not state.players or not state.winnables:
-            return random.choice(list(Direction))
-        
-        player = state.players[0]
-        target = state.winnables[0]
-        
-        # Calculate direction towards the goal
-        dx = target.x - player.x
-        dy = target.y - player.y
-        
-        # Choose action with bias towards the goal
-        actions_weights = []
-        
-        for action in Direction:
-            weight = 1.0
-            
-            if action == Direction.Right and dx > 0:
-                weight = 3.0
-            elif action == Direction.Left and dx < 0:
-                weight = 3.0
-            elif action == Direction.Down and dy > 0:
-                weight = 3.0
-            elif action == Direction.Up and dy < 0:
-                weight = 3.0
-            
-            actions_weights.append((action, weight))
-        
-        # Weighted choice
-        total_weight = sum(weight for _, weight in actions_weights)
-        rand_val = random.uniform(0, total_weight)
-        
-        cumulative_weight = 0
-        for action, weight in actions_weights:
-            cumulative_weight += weight
-            if rand_val <= cumulative_weight:
-                return action
-        
-        return random.choice(list(Direction))
-    
-    def backpropagate(self, node: MCTSNode, reward: float):
-        """Backpropagation phase: update node values."""
-        current = node
-        while current is not None:
-            current.visits += 1
-            current.wins += reward
-            current = current.parent
-    
-    def get_best_path(self, root: MCTSNode) -> List[Direction]:
-        """Get the best path from the MCTS tree."""
-        path = []
-        current = root
-        
-        while current.children:
-            # Choose the child with the most visits (most explored)
-            best_child = max(current.children, key=lambda child: child.visits)
-            
-            if best_child.action:
-                path.append(best_child.action)
-            
-            current = best_child
-            
-            # If we find a solution, stop
-            if check_win(current.state):
-                break
-        
-        return path
-    
-    def search(self, initial_state: GameState, iterations: int = 1000) -> List[Direction]:
-        """
-        Implement the MCTS algorithm to find the solution.
-        
-        :param initial_state: The initial game state
-        :param iterations: Number of MCTS iterations
-        :return: List of actions that lead to the solution
-        """
-        # Interpret initial rules
-        interpret_rules(initial_state)
-        
-        # Create root node
         root = MCTSNode(initial_state)
+
+        # Early termination if we find wins quickly
+        early_win_found = False
         
-        # Execute MCTS iterations
-        for i in trange(iterations, desc="MCTS Search"):
-            # 1. Selection
-            selected_node = self.select(root)
+        for i in trange(iterations):
+            # Select a node to explore
+            node = self.select(root)
+
+            # If the node is a winning state, we can return immediately
+            if check_win(node.state):
+                return self.extract_solution(node)
             
-            # 2. Expansion
-            expanded_node = self.expand(selected_node)
-            
-            # 3. Simulation
-            reward = self.simulate(expanded_node.state)
-            
-            # 4. Backpropagation
-            self.backpropagate(expanded_node, reward)
-            
-            # Check if we found a solution
-            if expanded_node.is_terminal():
-                # Reconstruct the path to the solution
-                path = []
-                current = expanded_node
-                while current.parent is not None:
-                    if current.action:
-                        path.append(current.action)
-                    current = current.parent
-                
-                if path:
-                    path.reverse()
-                    print(f"Solution found in {len(path)} moves after {i+1} iterations")
-                    return path
+            child = self.expand(node)
+            if child is None:
+                continue
+
+            result = self.simulate(child)
+            self.backpropagate(child, result)
+
+            # Check for wins in tree periodically
+            if i % 50 == 0 and i > 0:
+                win_node = self.find_win_in_tree(root)
+                if win_node is not None:
+                    early_win_found = True
+                    break
+
+        # Try to find a path to a win in the tree
+        if not early_win_found:
+            win_node = self.find_win_in_tree(root)
+        if win_node is not None:
+            return self.extract_solution(win_node)
+
+        # If no win found, return the most promising path
+        best_path_node = self.deepest_best_node(root)
+        if best_path_node is not None:
+            return self.extract_solution(best_path_node)
+        return []
+
+    def find_win_in_tree(self, node):
+        # Recursively search for a node in the tree that is a win
+        if check_win(node.state):
+            return node
+        for child in node.children.values():
+            if not child.isInvalid:  # Skip invalid children
+                result = self.find_win_in_tree(child)
+                if result is not None:
+                    return result
+        return None
+
+    def deepest_best_node(self, root):
+        # Find the deepest node with the highest win rate, but require minimum visits
+        stack = [(root, 0)]
+        best = (None, -1, -1.0)  # (node, depth, winrate)
+        while stack:
+            node, depth = stack.pop()
+            if node.visits > 3:  # Only consider nodes with some visits
+                winrate = node.wins / node.visits
+                # Prefer deeper nodes with good win rates
+                if depth > best[1] or (depth == best[1] and winrate > best[2]):
+                    best = (node, depth, winrate)
+            for child in node.children.values():
+                if not child.isInvalid:
+                    stack.append((child, depth + 1))
+        return best[0]
+
+    def select(self, node): 
+        while node.is_fully_expanded() and node.children:
+            node = node.best_child()
+        return node
+
+    def expand(self, node):
+        tried_actions = set(node.children.keys())
         
-        # If we didn't find a complete solution, return the best path
-        best_path = self.get_best_path(root)
-        print(f"No complete solution found. Best path: {len(best_path)} moves")
-        return best_path
+        # Prioritize actions that haven't been tried yet
+        available_actions = [d for d in Direction if d != Direction.Undefined and d not in tried_actions]
+        
+        if not available_actions:
+            return node
+            
+        # Smart action prioritization based on domain knowledge
+        action_scores = []
+        for action in available_actions:
+            score = 0
+            
+            # Quick simulation to score actions
+            next_state = advance_game_state(action, node.state.copy())
+            
+            if str(next_state) != str(node.state):  # Valid move
+                # Immediate win gets highest priority
+                if check_win(next_state):
+                    score += 1000
+                # Progress toward win
+                elif state_brings_player_closer_to_win(node.state, next_state):
+                    score += 100
+                # Avoid deadlocks
+                elif check_player_deadlocked(next_state):
+                    score -= 500
+                # General heuristic
+                score += evaluate_move_heuristic(node.state, next_state) * 0.1
+            
+            # Add small random factor to break ties
+            score += random.uniform(-5, 5)
+            action_scores.append((action, score))
+        
+        # Sort by score (highest first) and try the best action
+        action_scores.sort(key=lambda x: x[1], reverse=True)
+        action = action_scores[0][0]
+        
+        next_state = advance_game_state(action, node.state.copy())
+
+        if str(next_state) == str(node.state):  # skip invalid/no-op moves
+            invalid_child = MCTSNode(state=next_state, parent=node, action=action, isInvalid=True)
+            node.children[action] = invalid_child
+            return invalid_child
+        else:
+            valid_child = MCTSNode(state=next_state, parent=node, action=action)
+            node.children[action] = valid_child
+            return valid_child
+
+    def simulate(self, node, rollout_limit=50):
+        """
+        Enhanced heuristic simulation with better scoring
+        """
+        state = node.state
+        parent = node.parent.state if node.parent is not None else None
+        grandparent = node.parent.parent.state if node.parent is not None and node.parent.parent is not None else None
+
+        # Win/loss checks (keep these the same)
+        if check_win(state):
+            return 10000
+        if check_player_deadlocked(state):
+            return -500
+
+        # Your working heuristic logic with small enhancements
+        score = 0
+        if parent is not None:
+            # Your proven weights
+            if state_brings_player_closer_to_win(parent, state):
+                score += 1300
+            
+            # Add some additional heuristics with smaller weights
+            if move_creates_positive_rule(parent, state):
+                score += 300
+            if something_was_pushed(parent, state):
+                score += 150
+            if destructive_rule_removed(parent, state):
+                score += 400
+            if something_sank(parent, state):
+                score -= 200
+            
+            score += evaluate_move_heuristic(parent, state)
+
+        # Keep your back-and-forth penalty but make it stronger
+        if grandparent is not None:
+            if str(state) == str(grandparent):
+                score -= 1200
+
+        # Enhanced state repetition penalty
+        state_str = str(state)
+        self.recent_states[state_str] += 1
+        if self.recent_states[state_str] > 2:
+            score -= 75 * (self.recent_states[state_str] - 1)
+
+        return score
+
+    def legal_moves(self, state):
+        # Keep your existing logic
+        moves = []
+        for d in Direction:
+            if d is Direction.Undefined:
+                continue
+            next_state = advance_game_state(d, state)
+            if str(next_state) != str(state):
+                moves.append(d)
+        return moves 
+
+    def backpropagate(self, node, result):
+        # Keep your existing logic
+        while node is not None:
+            node.visits += 1
+            node.wins += result
+            node = node.parent
+
+    def extract_solution(self, node) -> List[Direction]:
+        # Keep your existing logic
+        actions = []
+        while node.parent is not None:
+            actions.append(node.action)
+            node = node.parent
+        return actions[::-1]

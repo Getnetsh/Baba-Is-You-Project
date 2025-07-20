@@ -32,10 +32,10 @@ class Execution:
         self.levels = []
         self.use_cache = use_cache
         
-        print(f"[DEBUG] Inizializzazione esecuzione con agente: {agent_path}")
-        print(f"[DEBUG] Set di livelli: {level_path}")
-        print(f"[DEBUG] Limite iterazioni: {iter_cap}")
-        print(f"[DEBUG] Uso cache: {use_cache}")
+        print(f"[DEBUG] Initializing execution with agent: {agent_path}")
+        print(f"[DEBUG] Level set: {level_path}")
+        print(f"[DEBUG] Iteration limit: {iter_cap}")
+        print(f"[DEBUG] Using cache: {use_cache}")
         
         # Crea la directory results se non esiste
         self.results_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'results'))
